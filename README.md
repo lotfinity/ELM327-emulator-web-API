@@ -48,9 +48,14 @@ Backend:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip 'setuptools<81' wheel
+python -m pip install --no-build-isolation -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+`ELM327-emulator` 3.0.5 is currently supplied as a source distribution and its
+setup script imports `pkg_resources`. Preparing setuptools and disabling pip's
+minimal isolated build environment avoids that upstream packaging issue.
 
 Frontend:
 
