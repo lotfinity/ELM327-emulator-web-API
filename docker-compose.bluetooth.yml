@@ -1,0 +1,15 @@
+services:
+  backend:
+    # BlueZ runs on the Linux host. Mounting the system bus lets the backend
+    # register an SPP profile and receive RFCOMM sockets from bluetoothd.
+    volumes:
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+    environment:
+      - ELM_BLUETOOTH_AUTOSTART=${ELM_BLUETOOTH_AUTOSTART:-false}
+      - ELM_BLUETOOTH_SERVICE_NAME=${ELM_BLUETOOTH_SERVICE_NAME:-LotoT ELM327}
+      - ELM_BLUETOOTH_ADAPTER=${ELM_BLUETOOTH_ADAPTER:-hci0}
+      - ELM_BLUETOOTH_CHANNEL=${ELM_BLUETOOTH_CHANNEL:-1}
+      - ELM_BLUETOOTH_DISCOVERABLE=${ELM_BLUETOOTH_DISCOVERABLE:-true}
+      - ELM_BLUETOOTH_PAIRABLE=${ELM_BLUETOOTH_PAIRABLE:-true}
+      - ELM_BLUETOOTH_AUTO_PAIR=${ELM_BLUETOOTH_AUTO_PAIR:-false}
+      - ELM_BLUETOOTH_PIN=${ELM_BLUETOOTH_PIN:-1234}
