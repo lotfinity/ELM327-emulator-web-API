@@ -1,159 +1,183 @@
-# ELM327 Emulator Web API 🚗 
+# ELM327 Emulator Web Control Panel
 
-<div align="center">
+A browser-based control and fault-injection interface built on top of
+[Ircama/ELM327-emulator](https://github.com/Ircama/ELM327-emulator).
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Next.js](https://img.shields.io/badge/Next.js-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/Bun-000000?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh/)
-
-A modern web-based ELM327 emulator with an intuitive GUI control panel. Monitor and control your virtual OBD-II parameters in real-time! 🚀
-
-[Features](#features) • [Quick Start](#quick-start) • [Documentation](#api-documentation) • [Contributing](#contributing)
+The project combines a FastAPI backend with a Next.js control panel. It is
+intended for developing and testing OBD-II clients without needing a vehicle or
+physical ELM327 adapter for every test case.
 
 ![ELM327 Emulator GUI](docs/image.png)
 
-</div>
+## Features
 
-## ✨ Features
+- Real ELM327 command processing through the upstream emulator
+- Adjustable ECU values that change actual PID responses
+- Start, pause, resume, stop, and reset controls
+- Runtime scenario selection, including `default`, `car`, and `engineoff`
+- UDS P1, P2, P3, and P4 timing controls
+- Sequential or weighted-random response selection
+- Built-in fault presets for slow adapters, dropped requests, malformed frames,
+  engine-off behavior, and unavailable ECUs
+- Manual fault controls for latency, one-shot delays, dropped commands, and
+  malformed replies
+- Raw OBD-II command console
+- Live WebSocket state, request history, counters, and active task visibility
+- Dark and light themes
+- Docker Compose development setup
 
-- 🎯 **Interactive GUI Dashboard** - Real-time monitoring of all ECU parameters
-- 🚀 **FastAPI Backend** - High-performance ELM327 emulation
-- 💻 **Modern Next.js Frontend** - Sleek, responsive control panel with shadcn/ui components
-- 🐳 **Docker Ready** - Easy deployment with Docker Compose
-- 📊 **Real-time Updates** - Live parameter visualization
-- 🛠️ **Customizable Parameters** - Modify ECU values on the fly
-- 🌓 **Dark/Light Mode** - Built-in theme support
+## Quick start
 
-## 🏁 Quick Start
-
-### Using Docker (Recommended)
+### Docker Compose
 
 ```bash
-# Clone the repository
-git clone https://github.com/rakshitbharat/ELM327-emulator-web-API.git
+git clone https://github.com/lotfinity/ELM327-emulator-web-API.git
 cd ELM327-emulator-web-API
-
-# Start the application
 docker compose up --build
 ```
 
-Visit:
-- 🌐 GUI Dashboard: http://localhost:3000
-- 📚 API Docs: http://localhost:8000/docs
+Open:
 
-### Manual Setup
+- Control panel: `http://localhost:3000`
+- FastAPI documentation: `http://localhost:8000/docs`
 
-**Backend:**
+### Manual setup
+
+Backend:
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Frontend:**
+Frontend:
+
 ```bash
 cd control-panel
 bun install
-bun run dev
+NEXT_PUBLIC_API_URL=http://localhost:8000 bun run dev
 ```
 
-## 🎮 GUI Features
+## Dashboard controls
 
-- **Real-time Dashboard**: Monitor all ECU parameters at a glance
-- **Parameter Controls**: Adjust values using intuitive sliders and inputs
-- **Command Console**: Send raw OBD-II commands
-- **Response History**: Track command history and responses
-- **Protocol Selection**: Switch between different OBD protocols
-- **Dark/Light Theme**: Choose your preferred visual style with system theme support
+### Runtime state
 
-## 🔧 Available ECU Parameters
+The dashboard can enable, pause, resume, stop, or reset command processing.
+These controls operate the in-process web emulator. They do not start a
+separate serial or TCP listener.
 
-| Parameter | Range | Unit |
-|-----------|-------|------|
-| Engine RPM | 0-8000 | RPM |
-| Vehicle Speed | 0-255 | km/h |
-| Throttle Position | 0-100 | % |
-| Engine Coolant Temp | -40 to 215 | °C |
-| Engine Load | 0-100 | % |
-| Fuel Level | 0-100 | % |
-| Manifold Pressure | 0-255 | kPa |
-| Timing Advance | -64 to 63.5 | ° |
-| O2 Sensor Voltage | 0-1.275 | V |
-| Mass Air Flow | 0-655.35 | g/s |
+### ECU parameter overrides
 
-## 🌐 API Endpoints
+The following values can be changed while the emulator is running:
 
-<details>
-<summary>View Available Endpoints</summary>
+| Parameter | Range | Unit | OBD PID |
+|---|---:|---|---|
+| Engine RPM | 0–8000 | RPM | `01 0C` |
+| Vehicle speed | 0–255 | km/h | `01 0D` |
+| Throttle position | 0–100 | % | `01 11` |
+| Coolant temperature | -40–215 | °C | `01 05` |
+| Engine load | 0–100 | % | `01 04` |
+| Fuel level | 0–100 | % | `01 2F` |
+| Intake manifold pressure | 0–255 | kPa | `01 0B` |
+| Timing advance | -64–63.5 | ° | `01 0E` |
+| O2 sensor voltage | 0–1.275 | V | `01 15` |
+| Mass air flow | 0–655.35 | g/s | `01 10` |
 
-### Command Execution
-```http
+The backend encodes these values into ELM327 response bytes and installs them
+through the upstream emulator's runtime PID-answer override mechanism.
+
+### Fault presets
+
+- `healthy`
+- `engine_off`
+- `slow_adapter`
+- `intermittent_drop`
+- `malformed_frames`
+- `ecu_unavailable`
+
+Custom fault settings can also drop every Nth command, corrupt every Nth reply,
+add random latency, suppress all replies, or delay only the next command.
+
+## API overview
+
+### Commands and ECU values
+
+```text
 POST /api/v1/command
-```
-
-### Parameter Control
-```http
 POST /api/v1/ecu/set-value
-GET /api/v1/ecu/values
-GET /api/v1/ecu/value/{parameter}
-```
-</details>
-
-## 📦 Tech Stack
-
-- **Backend**: FastAPI, Python 3.10+
-- **Frontend**: Next.js 14, TypeScript, shadcn/ui
-- **Package Manager**: Bun
-- **Containerization**: Docker
-- **Documentation**: Swagger/OpenAPI
-- **Testing**: pytest
-
-## 🛠️ Development
-
-```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest
-
-# Run linting
-flake8
+POST /api/v1/ecu/reset
+GET  /api/v1/ecu/values
+GET  /api/v1/ecu/value/{parameter}
 ```
 
-## 📝 Environment Variables
+### Emulator controls
 
-Create `.env`:
-```env
-API_HOST=0.0.0.0
-API_PORT=8000
-API_RELOAD=True
-NEXT_PUBLIC_API_URL=http://localhost:8000
+```text
+GET  /api/v1/status
+POST /api/v1/control
+GET  /api/v1/scenarios
+POST /api/v1/scenario
+POST /api/v1/timing
+POST /api/v1/choice
 ```
 
-## 🤝 Contributing
+### Faults and monitoring
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+```text
+POST /api/v1/faults
+POST /api/v1/faults/preset
+GET  /api/v1/history
+GET  /api/v1/counters
+GET  /api/v1/tasks
+WS   /api/v1/ws
+```
 
-## 📜 License
+The complete request and response schemas are available from Swagger at
+`/docs`.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Architecture
 
-## 🙏 Acknowledgments
+```text
+Next.js control panel
+        │ REST + WebSocket
+        ▼
+FastAPI control layer
+        │ direct Python calls
+        ▼
+Ircama/ELM327-emulator
+```
 
-- Built on top of the excellent [ELM327-emulator](https://github.com/Ircama/ELM327-emulator) library
-- Inspired by professional automotive diagnostic tools
-- UI components from [shadcn/ui](https://ui.shadcn.com/)
+The current web API processes commands directly in-process. A separate future
+adapter can expose the same controlled emulator over TCP, a pseudo-terminal, or
+a serial interface for external applications that require a physical-port-style
+connection.
 
----
+## Current limitations
 
-<div align="center">
-Made with ❤️ by <a href="https://github.com/rakshitbharat">rakshitbharat</a>
+- Persistent WebSockets are intended for local or containerized Uvicorn
+  deployments; traditional serverless deployments may not support them.
+- Start and stop currently govern API command processing rather than a dedicated
+  TCP or serial listener.
+- Plugin/task visibility is available, but plugin flows depend on what the
+  upstream emulator loads and activates in the selected execution mode.
+- The dashboard is a development and simulation tool, not a replacement for
+  safety-critical vehicle diagnostics.
 
-⭐️ Star us on GitHub if you find this useful!
-</div>
+## Technology
+
+- Python 3.10+
+- ELM327-emulator 3.0.5
+- FastAPI
+- Next.js and TypeScript
+- shadcn/ui
+- Docker Compose
+
+## License and attribution
+
+This fork retains the original project's licensing and attribution files.
+The emulator engine comes from
+[Ircama/ELM327-emulator](https://github.com/Ircama/ELM327-emulator), and this
+web project originated from
+[rakshitbharat/ELM327-emulator-web-API](https://github.com/rakshitbharat/ELM327-emulator-web-API).
