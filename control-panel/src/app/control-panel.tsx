@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { APITester } from '@/components/APITester';
 import { ParameterControl } from '@/components/ParameterControl';
-import { api, EmulatorState, HistoryEntry } from '@/lib/api';
+import { api, EmulatorState, getWebSocketUrl, HistoryEntry } from '@/lib/api';
 
 interface Values {
   engine_rpm: number;
@@ -108,6 +108,9 @@ function ControlPanel() {
   const [values, setValues] = useState<Values>(initialValues);
   const [emulator, setEmulator] = useState<EmulatorState | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [counters, setCounters] = useState<Record<string, unknown>>({});
+  const [activeTasks, setActiveTasks] = useState<Record<string, string[]>>({});
+  const [liveConnected, setLiveConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [timingDraft, setTimingDraft] = useState({ p1: 0, p2: 0, p3: 5, p4: 1440 });
@@ -123,14 +126,18 @@ function ControlPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [valueResponse, statusResponse, historyResponse] = await Promise.all([
+      const [valueResponse, statusResponse, historyResponse, counterResponse, taskResponse] = await Promise.all([
         api.getAllValues(),
         api.getStatus(),
         api.getHistory(40),
+        api.getCounters(),
+        api.getTasks(),
       ]);
       setValues(valueResponse.values);
       setEmulator(statusResponse.emulator);
       setHistory(historyResponse.history);
+      setCounters(counterResponse.counters || {});
+      setActiveTasks(taskResponse.tasks?.active || {});
       setTimingDraft({
         p1: statusResponse.emulator.timing.p1,
         p2: statusResponse.emulator.timing.p2,
@@ -148,8 +155,43 @@ function ControlPanel() {
 
   useEffect(() => {
     refresh();
-    const interval = window.setInterval(refresh, 2000);
-    return () => window.clearInterval(interval);
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let disposed = false;
+
+    const connect = () => {
+      if (disposed) return;
+      socket = new WebSocket(getWebSocketUrl());
+      socket.onopen = () => setLiveConnected(true);
+      socket.onmessage = (event) => {
+        try {
+          const snapshot = JSON.parse(event.data);
+          if (snapshot.type !== 'snapshot') return;
+          setEmulator(snapshot.emulator);
+          setValues(snapshot.values);
+          setHistory(snapshot.history || []);
+          setCounters(snapshot.counters || {});
+          setActiveTasks(snapshot.tasks || {});
+          setError(null);
+        } catch (messageError) {
+          console.error('Invalid emulator WebSocket message', messageError);
+        }
+      };
+      socket.onerror = () => socket?.close();
+      socket.onclose = () => {
+        setLiveConnected(false);
+        if (!disposed) reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+    const fallbackInterval = window.setInterval(refresh, 10000);
+    return () => {
+      disposed = true;
+      window.clearInterval(fallbackInterval);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
   }, [refresh]);
 
   const execute = async (label: string, operation: () => Promise<unknown>) => {
@@ -191,7 +233,7 @@ function ControlPanel() {
         </Alert>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Card className="border-zinc-800 bg-black/40">
           <CardHeader className="pb-2">
             <CardDescription>Emulator state</CardDescription>
@@ -210,6 +252,12 @@ function ControlPanel() {
           <CardHeader className="pb-2"><CardDescription>Last response</CardDescription></CardHeader>
           <CardContent className="font-mono text-lg">
             {emulator ? `${(emulator.last_execution_time * 1000).toFixed(1)} ms` : '—'}
+          </CardContent>
+        </Card>
+        <Card className="border-zinc-800 bg-black/40">
+          <CardHeader className="pb-2"><CardDescription>Live stream</CardDescription></CardHeader>
+          <CardContent className="font-mono text-lg">
+            {liveConnected ? 'CONNECTED' : 'RECONNECTING'}
           </CardContent>
         </Card>
       </div>
@@ -345,6 +393,35 @@ function ControlPanel() {
                 </div>
               );
             })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-zinc-800 bg-black/40">
+        <CardHeader>
+          <CardTitle>Counters and active tasks</CardTitle>
+          <CardDescription>Runtime counters from the upstream emulator and currently active plugin tasks.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {Object.entries(counters).slice(0, 15).map(([name, value]) => (
+              <div key={name} className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+                <div className="truncate text-xs text-zinc-500">{name}</div>
+                <div className="mt-1 truncate font-mono text-sm">{String(value)}</div>
+              </div>
+            ))}
+            {Object.keys(counters).length === 0 && <p className="text-sm text-zinc-500">No counters yet.</p>}
+          </div>
+          <div className="space-y-2">
+            {Object.entries(activeTasks).map(([ecu, tasks]) => (
+              <div key={ecu} className="rounded-lg border border-zinc-800 p-3">
+                <div className="font-mono text-sm">ECU {ecu}</div>
+                <div className="mt-1 text-xs text-zinc-500">{tasks.join(', ')}</div>
+              </div>
+            ))}
+            {Object.keys(activeTasks).length === 0 && (
+              <p className="text-sm text-zinc-500">No active tasks. Task-based UDS flows will appear here when triggered.</p>
+            )}
           </div>
         </CardContent>
       </Card>
