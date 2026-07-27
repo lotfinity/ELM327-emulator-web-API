@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+jobs:
+  backend-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile backend
+        run: python -m compileall -q app
+
+      - name: Exercise emulator controller
+        run: |
+          python - <<'PY'
+          from app.elm327_wrapper import ELM327Wrapper
+
+          emulator = ELM327Wrapper()
+          assert emulator.get_status()['state'] == 'running'
+
+          assert emulator.set_ecu_value('engine_rpm', 1234)
+          rpm = emulator.process_command('01 0C')
+          assert rpm['outcome'] == 'success', rpm
+          assert '41 0C 13 48' in rpm['response'], rpm
+
+          emulator.control('pause')
+          paused = emulator.process_command('ATI')
+          assert paused['outcome'] == 'paused', paused
+
+          emulator.control('resume')
+          resumed = emulator.process_command('ATI')
+          assert resumed['outcome'] == 'success', resumed
+
+          emulator.apply_fault_preset('intermittent_drop')
+          outcomes = [emulator.process_command('ATI')['outcome'] for _ in range(5)]
+          assert 'dropped' in outcomes, outcomes
+
+          emulator.reset()
+          assert emulator.get_status()['scenario'] == 'default'
+          assert emulator.get_history() == []
+          PY
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-panel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: bun run build
