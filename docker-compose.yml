@@ -25,7 +25,9 @@ services:
       - /app/node_modules
       - /app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
+      # This value is consumed by the user's browser, not by the frontend
+      # container, so it must use a host-reachable address.
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NODE_ENV=development
       - BUN_INSTALL_CACHE=/app/.bun
     depends_on:
