@@ -43,6 +43,51 @@ export type EmulatorState = {
   version: string;
 };
 
+export type BluetoothStartConfig = {
+  service_name: string;
+  adapter: string;
+  channel: number;
+  discoverable: boolean;
+  pairable: boolean;
+  auto_pair: boolean;
+  legacy_pin: string;
+  require_authentication: boolean;
+  require_authorization: boolean;
+  manage_adapter: boolean;
+};
+
+export type BluetoothState = {
+  available: boolean;
+  state: 'stopped' | 'starting' | 'registered' | 'connected' | 'released' | 'error';
+  registered: boolean;
+  connected: boolean;
+  service_uuid: string;
+  profile_path: string;
+  config: BluetoothStartConfig;
+  adapter: {
+    path: string | null;
+    name: string;
+    address: string | null;
+    alias: string | null;
+  };
+  client: {
+    device_path: string | null;
+    address: string | null;
+    connected_since: string | null;
+    last_disconnected_at: string | null;
+  };
+  traffic: {
+    rx_bytes: number;
+    tx_bytes: number;
+    commands: number;
+    last_command: string | null;
+  };
+  agent_registered: boolean;
+  last_pairing_event: string | null;
+  warnings: string[];
+  last_error: string | null;
+};
+
 export type HistoryEntry = {
   timestamp: string;
   command: string;
@@ -71,7 +116,7 @@ export const api = {
     const response = await apiClient.post('/api/v1/ecu/reset');
     return response.data;
   },
-  getStatus: async (): Promise<{ status: string; emulator: EmulatorState }> => {
+  getStatus: async (): Promise<{ status: string; emulator: EmulatorState; bluetooth?: BluetoothState }> => {
     const response = await apiClient.get('/api/v1/status');
     return response.data;
   },
@@ -109,6 +154,22 @@ export const api = {
   },
   getTasks: async () => {
     const response = await apiClient.get('/api/v1/tasks');
+    return response.data;
+  },
+  getBluetoothStatus: async (): Promise<{ status: string; bluetooth: BluetoothState }> => {
+    const response = await apiClient.get('/api/v1/bluetooth/status');
+    return response.data;
+  },
+  startBluetooth: async (config: BluetoothStartConfig): Promise<{ status: string; bluetooth: BluetoothState }> => {
+    const response = await apiClient.post('/api/v1/bluetooth/start', config);
+    return response.data;
+  },
+  stopBluetooth: async (): Promise<{ status: string; bluetooth: BluetoothState }> => {
+    const response = await apiClient.post('/api/v1/bluetooth/stop');
+    return response.data;
+  },
+  disconnectBluetooth: async (): Promise<{ status: string; bluetooth: BluetoothState }> => {
+    const response = await apiClient.post('/api/v1/bluetooth/disconnect');
     return response.data;
   },
 };
