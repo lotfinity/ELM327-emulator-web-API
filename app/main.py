@@ -1,6 +1,7 @@
+import asyncio
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from pydantic import BaseModel, Field
@@ -170,6 +171,54 @@ async def get_history(limit: int = Query(50, ge=1, le=250)):
 @app.get("/api/v1/counters")
 async def get_counters():
     return {"status": "success", "counters": elm327.get_counters()}
+
+
+@app.get("/api/v1/tasks")
+async def get_tasks():
+    emulator = elm327.emulator
+    active = {
+        str(ecu): [getattr(task, "__module__", task.__class__.__name__) for task in tasks]
+        for ecu, tasks in getattr(emulator, "tasks", {}).items()
+        if tasks
+    }
+    shared = {
+        str(ecu): getattr(task, "__module__", task.__class__.__name__)
+        for ecu, task in getattr(emulator, "task_shared_ns", {}).items()
+    }
+    return {
+        "status": "success",
+        "tasks": {
+            "active": active,
+            "shared": shared,
+            "available_plugins": sorted(getattr(emulator, "plugins", {}).keys()),
+        },
+    }
+
+
+@app.websocket("/api/v1/ws")
+async def live_updates(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            emulator = elm327.emulator
+            active_tasks = {
+                str(ecu): [getattr(task, "__module__", task.__class__.__name__) for task in tasks]
+                for ecu, tasks in getattr(emulator, "tasks", {}).items()
+                if tasks
+            }
+            await websocket.send_json(
+                {
+                    "type": "snapshot",
+                    "emulator": elm327.get_status(),
+                    "values": elm327.get_all_values(),
+                    "history": elm327.get_history(40),
+                    "counters": elm327.get_counters(),
+                    "tasks": active_tasks,
+                }
+            )
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        return
 
 
 @app.post("/api/v1/ecu/set-value")
