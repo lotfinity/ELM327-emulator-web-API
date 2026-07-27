@@ -1,10 +1,12 @@
 import axios from 'axios';
 
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:8000';
+
 const apiClient = axios.create({
-  baseURL:
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    'http://localhost:8000',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -49,6 +51,8 @@ export type HistoryEntry = {
   execution_time: number;
   scenario: string;
 };
+
+export const getWebSocketUrl = () => `${API_BASE_URL.replace(/^http/, 'ws')}/api/v1/ws`;
 
 export const api = {
   getAllValues: async () => {
@@ -101,6 +105,10 @@ export const api = {
   },
   getCounters: async () => {
     const response = await apiClient.get('/api/v1/counters');
+    return response.data;
+  },
+  getTasks: async () => {
+    const response = await apiClient.get('/api/v1/tasks');
     return response.data;
   },
 };
