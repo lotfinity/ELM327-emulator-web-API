@@ -12,6 +12,7 @@ import random
 import re
 import threading
 import time
+from copy import deepcopy
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Optional
@@ -20,6 +21,21 @@ from elm.elm import Elm
 
 
 class ELM327Wrapper:
+    AUDI_Q3_SCENARIO = "audi_q3_2016_2_0_tdi"
+    AUDI_Q3_PROFILE: Dict[str, Any] = {
+        "make": "Audi",
+        "model": "Q3",
+        "model_year": 2016,
+        "engine": "2.0 TDI",
+        "power_kw": 110,
+        "power_ps": 150,
+        "fuel": "Diesel",
+        "odometer_km": 196000,
+        "vin": "WAUZZZ8U9GR123456",
+        "vin_is_synthetic": True,
+        "engine_ecu": "Bosch EDC17C64",
+        "calibration_id": "04L906016Q 9978",
+    }
     PARAMETER_SPECS: Dict[str, Dict[str, Any]] = {
         "engine_rpm": {"range": (0.0, 8000.0), "pid": "RPM", "encode": "rpm"},
         "vehicle_speed": {"range": (0.0, 255.0), "pid": "SPEED", "encode": "byte"},
@@ -34,16 +50,16 @@ class ELM327Wrapper:
     }
 
     DEFAULT_VALUES: Dict[str, float] = {
-        "engine_rpm": 800.0,
+        "engine_rpm": 830.0,
         "vehicle_speed": 0.0,
-        "throttle_position": 16.0,
-        "engine_coolant_temp": 90.0,
-        "engine_load": 18.0,
-        "fuel_level": 65.0,
-        "intake_manifold_pressure": 38.0,
-        "timing_advance": 8.0,
-        "oxygen_sensor_voltage": 0.45,
-        "mass_air_flow": 3.2,
+        "throttle_position": 84.0,
+        "engine_coolant_temp": 88.0,
+        "engine_load": 24.0,
+        "fuel_level": 42.0,
+        "intake_manifold_pressure": 100.0,
+        "timing_advance": 2.0,
+        "oxygen_sensor_voltage": 0.10,
+        "mass_air_flow": 9.5,
     }
 
     def __init__(self) -> None:
@@ -58,6 +74,8 @@ class ELM327Wrapper:
         self.emulator = Elm(serial_port=None, batch_mode=True)
         self.emulator.logger = self.logger
         self.emulator.threadState = self.emulator.THREAD.ACTIVE
+        self._install_audi_q3_scenario()
+        self.emulator.set_sorted_obd_msg(self.AUDI_Q3_SCENARIO)
 
         self.running = True
         self.paused = False
@@ -73,6 +91,112 @@ class ELM327Wrapper:
             "next_command_delay_seconds": 0.0,
         }
         self._apply_all_parameter_overrides()
+
+    @staticmethod
+    def _positive_answer(data: str) -> str:
+        return f"<pos_answer>{data}</pos_answer>"
+
+    def _install_audi_q3_scenario(self) -> None:
+        """Install a coherent Audi Q3 profile without patching the dependency."""
+        scenario = deepcopy(self.emulator.ObdMessage["default"])
+        pa = self._positive_answer
+        vin_hex = " ".join(f"{ord(char):02X}" for char in self.AUDI_Q3_PROFILE["vin"])
+        calibration = self.AUDI_Q3_PROFILE["calibration_id"].ljust(16)[:16]
+        calibration_hex = " ".join(f"{ord(char):02X}" for char in calibration)
+        ecu_name = "ECM-2.0TDI-EDC17".ljust(20)[:20]
+        ecu_name_hex = " ".join(f"{ord(char):02X}" for char in ecu_name)
+        odometer_raw = int(self.AUDI_Q3_PROFILE["odometer_km"] * 10)
+
+        scenario.update(
+            {
+                "FUEL_STATUS": {
+                    "Request": r"^0103[0123456]?$",
+                    "Descr": "Closed-loop diesel fuel system status",
+                    "Response": pa("02 00"),
+                },
+                "MONITOR_STATUS": {
+                    "Request": r"^0101[0123456]?$",
+                    "Descr": "MIL off, no DTCs, compression-ignition monitors ready",
+                    "Response": pa("00 07 A1 00"),
+                },
+                "OBD_COMPLIANCE": {
+                    "Request": r"^011C[0123456]?$",
+                    "Descr": "EOBD compliance",
+                    "Response": pa("06"),
+                },
+                "FUEL_TYPE": {
+                    "Request": r"^0151[0123456]?$",
+                    "Descr": "Fuel Type: Diesel",
+                    "Response": pa("04"),
+                },
+                "DISTANCE_SINCE_DTC_CLEAR": {
+                    "Request": r"^0131[0123456]?$",
+                    "Descr": "Distance since diagnostic codes cleared",
+                    "Response": pa("13 88"),  # 5,000 km
+                },
+                "ODOMETER": {
+                    "Request": r"^01A6[0123456]?$",
+                    "Descr": "Vehicle odometer (0.1 km)",
+                    "Response": pa(
+                        f"{odometer_raw >> 24 & 0xFF:02X} "
+                        f"{odometer_raw >> 16 & 0xFF:02X} "
+                        f"{odometer_raw >> 8 & 0xFF:02X} "
+                        f"{odometer_raw & 0xFF:02X}"
+                    ),
+                },
+                "MODE_09_SUPPORTED": {
+                    "Request": r"^0900[0123456]?$",
+                    "Descr": "Supported vehicle-information PIDs",
+                    "Response": pa("F4 40 00 00"),
+                },
+                "VIN_MESSAGE_COUNT": {
+                    "Request": r"^0901[0123456]?$",
+                    "Descr": "VIN message count",
+                    "Response": pa("01"),
+                },
+                "VIN": {
+                    "Request": r"^0902[0123456]?$",
+                    "Descr": "Synthetic Audi Q3 VIN",
+                    "Response": pa(f"01 {vin_hex}"),
+                },
+                "CALIBRATION_ID_MESSAGE_COUNT": {
+                    "Request": r"^0903[0123456]?$",
+                    "Descr": "Calibration ID message count",
+                    "Response": pa("01"),
+                },
+                "CALIBRATION_ID": {
+                    "Request": r"^0904[0123456]?$",
+                    "Descr": "Audi diesel ECU calibration ID",
+                    "Response": pa(f"01 {calibration_hex}"),
+                },
+                "CVN": {
+                    "Request": r"^0906[0123456]?$",
+                    "Descr": "Calibration verification number",
+                    "Response": pa("01 A3 72 4C 91"),
+                },
+                "ECU_NAME": {
+                    "Request": r"^090A[0123456]?$",
+                    "Descr": "Engine ECU name",
+                    "Response": pa(f"01 {ecu_name_hex}"),
+                },
+                "STORED_DTCS": {
+                    "Request": r"^03[0123456]?$",
+                    "Descr": "No stored diagnostic trouble codes",
+                    "Response": pa("00"),
+                },
+                "PENDING_DTCS": {
+                    "Request": r"^07[0123456]?$",
+                    "Descr": "No pending diagnostic trouble codes",
+                    "Response": pa("00"),
+                },
+                "PERMANENT_DTCS": {
+                    "Request": r"^0A[0123456]?$",
+                    "Descr": "No permanent diagnostic trouble codes",
+                    "Response": pa("00"),
+                },
+            }
+        )
+        self.emulator.ObdMessage[self.AUDI_Q3_SCENARIO] = scenario
 
     @staticmethod
     def _now() -> str:
@@ -237,7 +361,7 @@ class ELM327Wrapper:
         with self._lock:
             self.emulator.set_defaults()
             self.emulator.reset(0)
-            self.emulator.set_sorted_obd_msg()
+            self.emulator.set_sorted_obd_msg(self.AUDI_Q3_SCENARIO)
             self.emulator.threadState = self.emulator.THREAD.ACTIVE
             self.running = True
             self.paused = False
@@ -332,7 +456,7 @@ class ELM327Wrapper:
     def apply_fault_preset(self, preset: str) -> Dict[str, Any]:
         presets: Dict[str, Dict[str, Any]] = {
             "healthy": {
-                "scenario": "default",
+                "scenario": self.AUDI_Q3_SCENARIO,
                 "faults": {"no_response": False, "drop_every_n": 0, "malformed_every_n": 0, "latency_jitter_ms": 0},
                 "delay": 0.0,
             },
@@ -342,22 +466,22 @@ class ELM327Wrapper:
                 "delay": 0.0,
             },
             "slow_adapter": {
-                "scenario": "default",
+                "scenario": self.AUDI_Q3_SCENARIO,
                 "faults": {"no_response": False, "drop_every_n": 0, "malformed_every_n": 0, "latency_jitter_ms": 1200},
                 "delay": 0.8,
             },
             "intermittent_drop": {
-                "scenario": "default",
+                "scenario": self.AUDI_Q3_SCENARIO,
                 "faults": {"no_response": False, "drop_every_n": 5, "malformed_every_n": 0, "latency_jitter_ms": 250},
                 "delay": 0.15,
             },
             "malformed_frames": {
-                "scenario": "default",
+                "scenario": self.AUDI_Q3_SCENARIO,
                 "faults": {"no_response": False, "drop_every_n": 0, "malformed_every_n": 4, "latency_jitter_ms": 100},
                 "delay": 0.0,
             },
             "ecu_unavailable": {
-                "scenario": "default",
+                "scenario": self.AUDI_Q3_SCENARIO,
                 "faults": {"no_response": True, "drop_every_n": 0, "malformed_every_n": 0, "latency_jitter_ms": 0},
                 "delay": 0.0,
             },
@@ -409,6 +533,7 @@ class ELM327Wrapper:
             },
             "faults": dict(self._faults),
             "version": self.get_version(),
+            "vehicle": dict(self.AUDI_Q3_PROFILE),
         }
 
     def get_version(self) -> str:

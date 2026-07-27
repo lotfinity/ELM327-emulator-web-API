@@ -262,6 +262,41 @@ function ControlPanel() {
         </Card>
       </div>
 
+      {emulator?.vehicle && (
+        <Card className="border-zinc-800 bg-black/40">
+          <CardHeader>
+            <CardTitle>
+              {emulator.vehicle.model_year} {emulator.vehicle.make} {emulator.vehicle.model}
+            </CardTitle>
+            <CardDescription>
+              Realistic development profile · VIN is synthetic and must not be treated as a real vehicle identity
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <div className="text-xs text-zinc-500">Powertrain</div>
+              <div className="mt-1 font-mono text-sm">
+                {emulator.vehicle.engine} · {emulator.vehicle.power_kw} kW / {emulator.vehicle.power_ps} PS
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Odometer</div>
+              <div className="mt-1 font-mono text-sm">
+                {emulator.vehicle.odometer_km.toLocaleString()} km
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Synthetic VIN</div>
+              <div className="mt-1 font-mono text-sm">{emulator.vehicle.vin}</div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Engine ECU</div>
+              <div className="mt-1 font-mono text-sm">{emulator.vehicle.engine_ecu}</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-zinc-800 bg-black/40">
         <CardHeader>
           <CardTitle>Runtime controls</CardTitle>

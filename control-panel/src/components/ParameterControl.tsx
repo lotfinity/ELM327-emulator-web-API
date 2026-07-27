@@ -33,27 +33,32 @@ const parameterRanges: ParameterRanges = {
 interface ParameterControlProps {
   parameter: string;
   value: number;
-  onChange: (parameter: string, value: number) => void;
+  onChange: (parameter: string, value: number) => Promise<void>;
   protocol?: string;
 }
 
 export function ParameterControl({ parameter, value, onChange, protocol = 'auto' }: ParameterControlProps) {
   const range = parameterRanges[parameter];
   const [localValue, setLocalValue] = useState(value);
+  const [isEditing, setIsEditing] = useState(false);
   const [rawResponse, setRawResponse] = useState<unknown>(null);
 
   useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
+    if (!isEditing) setLocalValue(value);
+  }, [isEditing, value]);
 
   if (!range) {
     return <p className="text-sm text-red-400">Unsupported parameter: {parameter}</p>;
   }
 
-  const commitValue = (nextValue: number) => {
+  const commitValue = async (nextValue: number) => {
     const clamped = Math.min(range.max, Math.max(range.min, nextValue));
     setLocalValue(clamped);
-    onChange(parameter, clamped);
+    try {
+      await onChange(parameter, clamped);
+    } finally {
+      setIsEditing(false);
+    }
   };
 
   const fetchRawData = async () => {
@@ -73,10 +78,14 @@ export function ParameterControl({ parameter, value, onChange, protocol = 'auto'
           max={range.max}
           step={range.step}
           value={localValue}
-          onChange={(event) => setLocalValue(Number(event.target.value))}
-          onBlur={() => commitValue(localValue)}
+          onFocus={() => setIsEditing(true)}
+          onChange={(event) => {
+            setIsEditing(true);
+            setLocalValue(Number(event.target.value));
+          }}
+          onBlur={() => void commitValue(localValue)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') commitValue(localValue);
+            if (event.key === 'Enter') event.currentTarget.blur();
           }}
           className="h-9 bg-black/30 font-mono"
         />
@@ -88,8 +97,11 @@ export function ParameterControl({ parameter, value, onChange, protocol = 'auto'
         max={range.max}
         step={range.step}
         value={[localValue]}
-        onValueChange={([nextValue]) => setLocalValue(nextValue)}
-        onValueCommit={([nextValue]) => commitValue(nextValue)}
+        onValueChange={([nextValue]) => {
+          setIsEditing(true);
+          setLocalValue(nextValue);
+        }}
+        onValueCommit={([nextValue]) => void commitValue(nextValue)}
       />
 
       <div className="flex justify-between text-xs text-zinc-600">

@@ -1,9 +1,14 @@
 import axios from 'axios';
 
+const browserDefaultApiUrl =
+  typeof window === 'undefined'
+    ? 'http://localhost:8000'
+    : `${window.location.protocol}//${window.location.hostname}:8000`;
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:8000';
+  browserDefaultApiUrl;
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -41,6 +46,20 @@ export type EmulatorState = {
     next_command_delay_seconds: number;
   };
   version: string;
+  vehicle: {
+    make: string;
+    model: string;
+    model_year: number;
+    engine: string;
+    power_kw: number;
+    power_ps: number;
+    fuel: string;
+    odometer_km: number;
+    vin: string;
+    vin_is_synthetic: boolean;
+    engine_ecu: string;
+    calibration_id: string;
+  };
 };
 
 export type BluetoothStartConfig = {
