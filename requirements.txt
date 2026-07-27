@@ -1,4 +1,4 @@
-ELM327-emulator==3.0.3
+ELM327-emulator==3.0.5
 fastapi==0.83.0
 uvicorn==0.16.0
 mangum==0.12.0
@@ -9,4 +9,4 @@ requests==2.27.1
 pyserial==3.5
 typing-extensions>=3.7.4
 pydantic>=1.8.0,<2.0.0
-boto3>=1.9.0 
+boto3>=1.9.0
