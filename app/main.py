@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -6,9 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from pydantic import BaseModel, Field
 
+from app.bluetooth_spp import BluetoothSPPTransport
 from app.elm327_wrapper import ELM327Wrapper
 
 
+logger = logging.getLogger("elm327.api")
 app = FastAPI(
     title="ELM327 Emulator Control API",
     description="Control, monitor, and inject faults into an ELM327 ECU emulator.",
@@ -22,6 +26,10 @@ app.add_middleware(
 )
 
 elm327 = ELM327Wrapper()
+bluetooth = BluetoothSPPTransport(
+    command_handler=elm327.process_command,
+    echo_handler=lambda: bool(elm327.emulator.counters.get("cmd_echo", True)),
+)
 
 
 class Command(BaseModel):
@@ -67,8 +75,43 @@ class FaultPresetRequest(BaseModel):
     preset: str
 
 
+class BluetoothStartRequest(BaseModel):
+    service_name: Optional[str] = None
+    adapter: Optional[str] = None
+    channel: Optional[int] = Field(None, ge=1, le=30)
+    discoverable: Optional[bool] = None
+    pairable: Optional[bool] = None
+    auto_pair: Optional[bool] = None
+    legacy_pin: Optional[str] = Field(None, min_length=1, max_length=16)
+    require_authentication: Optional[bool] = None
+    require_authorization: Optional[bool] = None
+    manage_adapter: Optional[bool] = None
+
+
 def _defined_values(model: BaseModel) -> Dict[str, Any]:
     return {key: value for key, value in model.dict().items() if value is not None}
+
+
+def _truthy_environment(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+@app.on_event("startup")
+async def start_optional_bluetooth() -> None:
+    if not _truthy_environment("ELM_BLUETOOTH_AUTOSTART"):
+        return
+    try:
+        await bluetooth.start()
+    except RuntimeError as exc:
+        logger.warning("Bluetooth autostart failed: %s", exc)
+
+
+@app.on_event("shutdown")
+async def stop_bluetooth() -> None:
+    try:
+        await bluetooth.stop()
+    except Exception:
+        logger.exception("Bluetooth shutdown failed")
 
 
 @app.get("/")
@@ -77,6 +120,7 @@ async def root():
         "name": "ELM327 Emulator Control API",
         "status": "ok",
         "docs": "/docs",
+        "bluetooth": bluetooth.get_status(),
     }
 
 
@@ -92,7 +136,11 @@ async def send_command(command: Command):
 
 @app.get("/api/v1/status")
 async def get_status():
-    return {"status": "success", "emulator": elm327.get_status()}
+    return {
+        "status": "success",
+        "emulator": elm327.get_status(),
+        "bluetooth": bluetooth.get_status(),
+    }
 
 
 @app.post("/api/v1/control")
@@ -195,6 +243,32 @@ async def get_tasks():
     }
 
 
+@app.get("/api/v1/bluetooth/status")
+async def get_bluetooth_status():
+    return {"status": "success", "bluetooth": bluetooth.get_status()}
+
+
+@app.post("/api/v1/bluetooth/start")
+async def start_bluetooth(request: BluetoothStartRequest):
+    try:
+        return {
+            "status": "success",
+            "bluetooth": await bluetooth.start(_defined_values(request)),
+        }
+    except (RuntimeError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.post("/api/v1/bluetooth/stop")
+async def stop_bluetooth_transport():
+    return {"status": "success", "bluetooth": await bluetooth.stop()}
+
+
+@app.post("/api/v1/bluetooth/disconnect")
+async def disconnect_bluetooth_client():
+    return {"status": "success", "bluetooth": await bluetooth.disconnect_client()}
+
+
 @app.websocket("/api/v1/ws")
 async def live_updates(websocket: WebSocket):
     await websocket.accept()
@@ -210,6 +284,7 @@ async def live_updates(websocket: WebSocket):
                 {
                     "type": "snapshot",
                     "emulator": elm327.get_status(),
+                    "bluetooth": bluetooth.get_status(),
                     "values": elm327.get_all_values(),
                     "history": elm327.get_history(40),
                     "counters": elm327.get_counters(),
