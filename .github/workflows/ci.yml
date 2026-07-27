@@ -11,31 +11,18 @@ jobs:
   backend-smoke:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: pip
 
-      - name: Diagnose and install backend dependencies
-        run: |
-          set +e
-          env -u GITHUB_RUN_NUMBER pip install \
-            ELM327-emulator==3.0.5 \
-            fastapi==0.83.0 \
-            uvicorn==0.16.0 \
-            mangum==0.12.0 \
-            python-multipart==0.0.5 \
-            python-dotenv==0.20.0 \
-            aiofiles==0.8.0 \
-            requests==2.27.1 \
-            pyserial==3.5 \
-            'typing-extensions>=3.7.4' \
-            'pydantic>=1.8.0,<2.0.0' \
-            'boto3>=1.9.0' > /tmp/pip-install.log 2>&1
-          status=$?
-          tail -100 /tmp/pip-install.log
-          exit $status
+      - name: Prepare Python build environment
+        run: python -m pip install --upgrade pip 'setuptools<81' wheel
 
-      - uses: actions/checkout@v4
+      - name: Install backend dependencies
+        run: env -u GITHUB_RUN_NUMBER python -m pip install --no-build-isolation -r requirements.txt
 
       - name: Compile backend
         run: python -m compileall -q app
